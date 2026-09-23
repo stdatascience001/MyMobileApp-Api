@@ -41,3 +41,43 @@ class Token(BaseModel):
 
 class TokenRefresh(BaseModel):
     refresh_token: str
+
+from datetime import date
+
+class TripBase(BaseModel):
+    title: str
+    destination: str
+    start_date: date
+    end_date: date
+    preferences: dict | None = None
+
+class TripCreate(TripBase):
+    @field_validator('end_date')
+    @classmethod
+    def validate_dates(cls, v: date, info: dict) -> date:
+        # In Pydantic V2 we can access other fields from info.data
+        start_date = info.data.get('start_date')
+        if start_date and v < start_date:
+            raise ValueError('End date must be after start date')
+        return v
+        
+    @field_validator('destination')
+    @classmethod
+    def validate_destination(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError('Destination cannot be empty')
+        return v
+
+class TripUpdate(BaseModel):
+    title: str | None = None
+    destination: str | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+    preferences: dict | None = None
+
+class TripResponse(TripBase):
+    uuid: UUID
+    user_uuid: UUID
+
+    class Config:
+        from_attributes = True

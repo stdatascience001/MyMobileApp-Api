@@ -38,7 +38,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: AsyncSessi
     result = await db.execute(select(User).where(User.email == form_data.username))
     db_user = result.scalars().first()
     
-    if not db_user or not verify_password(form_data.password, db_user.password_hash):
+    if not db_user or not verify_password(form_data.password, db_user.password_hash):  # type: ignore
         raise HTTPException(status_code=401, detail="Invalid email or password")
     
     access_token = create_access_token(data={"sub": db_user.email})
@@ -63,7 +63,7 @@ async def refresh_token(token_data: TokenRefresh, db: AsyncSession = Depends(get
     )
     try:
         payload = jwt.decode(token_data.refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        email: str = payload.get("sub")
+        email = payload.get("sub")
         if email is None:
             raise credentials_exception
     except InvalidTokenError:
