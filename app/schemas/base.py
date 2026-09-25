@@ -1,5 +1,5 @@
 import re
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, ValidationInfo, field_validator
 from uuid import UUID
 
 class UserCreate(BaseModel):
@@ -49,12 +49,12 @@ class TripBase(BaseModel):
     destination: str
     start_date: date
     end_date: date
-    preferences: dict | None = None
+    preferences: list | dict | None = None
 
 class TripCreate(TripBase):
     @field_validator('end_date')
     @classmethod
-    def validate_dates(cls, v: date, info: dict) -> date:
+    def validate_dates(cls, v: date, info: ValidationInfo) -> date:
         # In Pydantic V2 we can access other fields from info.data
         start_date = info.data.get('start_date')
         if start_date and v < start_date:
@@ -78,6 +78,8 @@ class TripUpdate(BaseModel):
 class TripResponse(TripBase):
     uuid: UUID
     user_uuid: UUID
+    itinerary_json: dict | None = None
+    is_generated: bool | None = False
 
     class Config:
         from_attributes = True

@@ -1,4 +1,5 @@
 import uuid
+import sqlalchemy
 from sqlalchemy import Column, String, DateTime, Date, Uuid, ForeignKey, JSON
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -14,9 +15,11 @@ class Trip(Base):
     start_date = Column(Date, nullable=False)
     end_date = Column(Date, nullable=False)
     preferences = Column(JSON, nullable=True)
+    itinerary_json = Column(JSON, nullable=True)
+    is_generated = Column(sqlalchemy.Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     user = relationship("User", back_populates="trips")
-    itineraries = relationship("Itinerary", back_populates="trip")
-    places = relationship("TripPlace", back_populates="trip")
+    itineraries = relationship("Itinerary", back_populates="trip", cascade="all, delete-orphan")
+    places = relationship("TripPlace", back_populates="trip", cascade="all, delete-orphan")
