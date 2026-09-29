@@ -16,21 +16,23 @@ router = APIRouter()
 async def generate_itinerary_background(trip_id: UUID):
     from app.services.ai_service import generate_trip_plan
     from app.schemas.ai import TripPlanRequest
-    
+
+    trip = None
+
     async with SessionLocal() as db:
-        result = await db.execute(select(Trip).where(Trip.uuid == trip_id))
-        trip = result.scalars().first()
-        if not trip:
-            return
-            
-        request = TripPlanRequest(
-            destination=trip.destination,
-            start_date=trip.start_date.isoformat(),
-            end_date=trip.end_date.isoformat(),
-            preferences=[str(trip.preferences)] if trip.preferences else []
-        )
-        
         try:
+            result = await db.execute(select(Trip).where(Trip.uuid == trip_id))
+            trip = result.scalars().first()
+            if not trip:
+                return
+
+            request = TripPlanRequest(
+                destination=trip.destination,
+                start_date=trip.start_date.isoformat() if hasattr(trip.start_date, 'isoformat') else str(trip.start_date),
+                end_date=trip.end_date.isoformat() if hasattr(trip.end_date, 'isoformat') else str(trip.end_date),
+                preferences=[str(trip.preferences)] if trip.preferences else []
+            )
+
             # Note: generate_trip_plan is blocking, ideally it should run in an executor
             # or use async version of genai if available, but background_tasks handles it in a threadpool in FastAPI.
             plan = generate_trip_plan(request)
@@ -38,7 +40,13 @@ async def generate_itinerary_background(trip_id: UUID):
             trip.is_generated = True
             await db.commit()
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             print(f"Failed to generate itinerary: {e}")
+            if trip is not None:
+                trip.itinerary_json = {"error": f"Failed to generate itinerary. Please try again. ({e})"}
+                trip.is_generated = True
+                await db.commit()
 
 @router.post("/", response_model=TripResponse, status_code=status.HTTP_201_CREATED)
 async def create_trip(
@@ -53,7 +61,9 @@ async def create_trip(
         destination=trip.destination,
         start_date=trip.start_date,
         end_date=trip.end_date,
-        preferences=trip.preferences
+        preferences=trip.preferences,
+        is_generated=False,
+        itinerary_json=None
     )
     db.add(db_trip)
     await db.commit()
@@ -70,6 +80,9 @@ async def get_trips(
 ):
     result = await db.execute(select(Trip).where(Trip.user_uuid == current_user.uuid))
     trips = result.scalars().all()
+    for trip in trips:
+        if trip.is_generated is None:
+            trip.is_generated = False
     return trips
 
 @router.get("/{trip_id}", response_model=TripResponse)
@@ -86,6 +99,32 @@ async def get_trip(
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
         
+    if trip.is_generated is None:
+        trip.is_generated = False
+        
+    return trip
+
+@router.post("/{trip_id}/retry", response_model=TripResponse)
+async def retry_generation(
+    trip_id: UUID,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    result = await db.execute(
+        select(Trip).where(Trip.uuid == trip_id, Trip.user_uuid == current_user.uuid)
+    )
+    trip = result.scalars().first()
+    
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+        
+    trip.is_generated = False
+    trip.itinerary_json = None
+    await db.commit()
+    await db.refresh(trip)
+    
+    background_tasks.add_task(generate_itinerary_background, trip.uuid)
     return trip
 
 @router.put("/{trip_id}", response_model=TripResponse)
